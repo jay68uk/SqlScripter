@@ -1,7 +1,0 @@
-﻿{
-  "ConnectionStrings": {
-    "DefaultConnection": ""
-  },
-  "DatabaseName": "Main",
-  "OutputPath": "../scripts"
-}

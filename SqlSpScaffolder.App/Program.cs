@@ -5,7 +5,7 @@ using SqlSpScaffolder.App;
 var limitProcessing = 0;
 var config = new ConfigurationBuilder()
   .SetBasePath(Directory.GetCurrentDirectory())
-  .AddJsonFile("app.settings", optional: true, reloadOnChange: true)
+  .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
   .Build();
 
   AnsiConsole.MarkupLine("[bold yellow]Welcome to Sql Script Scaffolder:[/]");

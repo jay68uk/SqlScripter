@@ -11,17 +11,22 @@ public static class ScaffoldStoredProcedures
     public static void Invoke(IConfigurationRoot configurationRoot, int demoModeLimit)
     {
         var connection = new ServerConnection(configurationRoot.GetConnectionString("DefaultConnection"));
+        var databaseName = configurationRoot["DatabaseName"];
+        connection.DatabaseName = databaseName;
         var server = new Server(connection);
 
         try
         {
-            var database = server.Databases[configurationRoot["DatabaseName"]];
+            var database = server.Databases[databaseName];
             if (database == null)
             {
-                throw new Exception($"Database '{configurationRoot["DatabaseName"]}' not found.");
+                throw new SqlServerManagementException($"Database '{configurationRoot["DatabaseName"]}' not found.");
             }
 
-            var outputPath = configurationRoot["OutputPath"] ?? string.Empty;
+            var outputPath = configurationRoot["OutputPath"] ?? "../scripts";
+            var storedProcedureFolder = configurationRoot["StoredProcedureFolder"] ?? "/storedprocedures";
+            var functionsFolder = configurationRoot["FunctionsFolder"] ?? "/functions";
+            CheckOutputPathExists(outputPath + storedProcedureFolder, outputPath + functionsFolder);
 
             AnsiConsole.Progress()
                 .Start(ctx =>
@@ -43,8 +48,22 @@ public static class ScaffoldStoredProcedures
         }
     }
 
+    private static void CheckOutputPathExists(string storedProcedureFolder, string functionsFolder)
+    {
+        if (!Directory.Exists(storedProcedureFolder))
+        {
+            Directory.CreateDirectory(storedProcedureFolder);
+            AnsiConsole.MarkupLine($"[deepskyblue1]Directory created:[/] [white]'{storedProcedureFolder}'[/]");
+        }
+
+        if (Directory.Exists(functionsFolder)) return;
+        Directory.CreateDirectory(functionsFolder);
+        AnsiConsole.MarkupLine($"[deepskyblue1]Directory created:[/] [white]'{functionsFolder}'[/]");
+    }
+
     private static void ScriptStoredProcedures(string outputPath, Database database, ProgressTask task, int demoModeLimit)
     {
+        var databaseName = database.Name;
         var itemsScripted = 0;
         foreach (StoredProcedure storedProcedure in database.StoredProcedures)
         {
@@ -58,18 +77,9 @@ public static class ScaffoldStoredProcedures
             try
             {
                 var script = storedProcedure.Script();
-                var safeFileName = string.Concat(storedProcedure.Name.Split(Path.GetInvalidFileNameChars()));
-                var fileName = Path.Combine(outputPath, $"{safeFileName}.sql");
+                var fileName = ScriptUtilities.CreateSafeFileName(outputPath, storedProcedure.Name);
 
-                var scriptHeader = $@"
-                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[{storedProcedure.Name}]') AND type in (N'P'))
-                    BEGIN
-                        ALTER PROCEDURE [dbo].[{storedProcedure.Name}]
-                    END
-                    ELSE
-                    BEGIN
-                        CREATE PROCEDURE [dbo].[{storedProcedure.Name}]
-                    END";
+                var scriptHeader = ScriptUtilities.ScriptHeader(databaseName);
                 
                 var fullScript = scriptHeader + Environment.NewLine + ScriptUtilities.JoinScriptParts(script);
 
@@ -77,18 +87,20 @@ public static class ScaffoldStoredProcedures
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[bold red]Error scripting stored procedure [white]{storedProcedure.Name}: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[bold red]Error scripting stored procedure[/] [white]{storedProcedure.Name}: {ex.Message}[/]");
             }
 
-            if (demoModeLimit > 0 && itemsScripted >= demoModeLimit)
-            {
-                break;
-            }
+            if (ScriptUtilities.DemoLimitReached(demoModeLimit, itemsScripted)) continue;
+            task.StopTask();
+            break;
         }
+        
+        task.StopTask();
     }
-    
+
     private static void ScriptFunctions(string outputPath, Database database, ProgressTask task, int demoModeLimit)
     {
+        var databaseName = database.Name;
         var itemsScripted = 0;
         foreach (UserDefinedFunction function in database.UserDefinedFunctions)
         {
@@ -102,18 +114,9 @@ public static class ScaffoldStoredProcedures
             try
             {
                 var script = function.Script();
-                var safeFileName = string.Concat(function.Name.Split(Path.GetInvalidFileNameChars()));
-                var fileName = Path.Combine(outputPath, $"{safeFileName}.sql");
+                var fileName = ScriptUtilities.CreateSafeFileName(outputPath, function.Name);
 
-                var scriptHeader = $@"
-                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[{function.Name}]') AND type in (N'FN', N'IF', N'TF'))
-                    BEGIN
-                        ALTER FUNCTION [dbo].[{function.Name}]
-                    END
-                    ELSE
-                    BEGIN
-                        CREATE FUNCTION [dbo].[{function.Name}]
-                    END";
+                var scriptHeader = ScriptUtilities.ScriptHeader(databaseName);
                 
                 var fullScript = scriptHeader + Environment.NewLine + ScriptUtilities.JoinScriptParts(script);
 
@@ -121,13 +124,14 @@ public static class ScaffoldStoredProcedures
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[bold red]Error scripting function [white]{function.Name}: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[bold red]Error scripting function [white]{function.Name}[/]");
             }
 
-            if (demoModeLimit > 0 && itemsScripted >= demoModeLimit)
-            {
-                break;
-            }
+            if (ScriptUtilities.DemoLimitReached(demoModeLimit, itemsScripted)) continue;
+            task.StopTask();
+            break;
         }
+        
+        task.StopTask();
     }
 }
